@@ -8,7 +8,7 @@ from conans.errors import ConanInvalidConfiguration
 
 class LibuvConan(ConanFile):
     name = "libuv"
-    version = "1.27.0"
+    version = "1.29.0"
     description = "Cross-platform asynchronous I/O "
     url = "https://github.com/zinnion/conan-libuv"
     homepage = "https://github.com/libuv/libuv"
@@ -29,13 +29,13 @@ class LibuvConan(ConanFile):
             raise ConanInvalidConfiguration("Visual Studio >= 14 (2015) is required")
 
     def source(self):
-        sha256 = "4afcdc84cd315b77c8e532e7b3fde43d536af0e2e835eafbd0e75518ed26dbed"
+        sha256 = "ca62158fd35dfc06e37400f5ae5d0f18dde1ffc4c140738fff6f95b036a8b6f1"
         tools.get("{0}/archive/v{1}.tar.gz".format(self.homepage, self.version), sha256=sha256)
         extracted_folder = self.name + "-" + self.version
         os.rename(extracted_folder, self._source_subfolder)
 
     def build_requirements(self):
-        self.build_requires("gyp_installer/20190423@bincrafters/stable")
+        self.build_requires("gyp_installer/20190423@zinnion/stable")
         if not tools.which("ninja"):
             self.build_requires("ninja_installer/1.8.2@bincrafters/stable")
 
