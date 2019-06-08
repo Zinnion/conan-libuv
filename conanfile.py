@@ -1,78 +1,62 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import os
-from conans import ConanFile, tools
-from conans.errors import ConanInvalidConfiguration
+
+from conans import CMake, ConanFile, tools
 
 
 class LibuvConan(ConanFile):
     name = "libuv"
-    version = "1.29.0"
-    description = "Cross-platform asynchronous I/O "
-    url = "https://github.com/zinnion/conan-libuv"
-    homepage = "https://github.com/libuv/libuv"
-    author = "Zinnion <mauro@zinnion.com>"
-    topics = ("conan", "libuv", "io", "async", "event")
+    version = "1.29.1"
     license = "MIT"
-    exports = ["LICENSE.md"]
-    settings = "os", "arch", "compiler", "build_type"
-    generators = "cmake"
+    author = "Mauro Delazero <mauro@zinnion.com>"
+    url = "https://github.com/AtaLuZiK/conan-libuv"
+    description = "libuv is a multi-platform support library with a focus on asynchronous I/O."
+    topics = ("asynchronous", "events")
+    settings = "os", "compiler", "build_type", "arch"
     options = {"shared": [True, False]}
-    default_options = {"shared": False}
-    _source_subfolder = "source_subfolder"
+    default_options = "shared=False"
+    exports_sources = "libuv-config.cmake"
+    generators = "cmake"
+
+    @property
+    def zip_folder_name(self):
+        return "libuv-v" + self.version
 
     def configure(self):
         del self.settings.compiler.libcxx
-        if self.settings.compiler == "Visual Studio" \
-            and int(str(self.settings.compiler.version)) < 14:
-            raise ConanInvalidConfiguration("Visual Studio >= 14 (2015) is required")
 
     def source(self):
-        sha256 = "ca62158fd35dfc06e37400f5ae5d0f18dde1ffc4c140738fff6f95b036a8b6f1"
-        tools.get("{0}/archive/v{1}.tar.gz".format(self.homepage, self.version), sha256=sha256)
-        extracted_folder = self.name + "-" + self.version
-        os.rename(extracted_folder, self._source_subfolder)
+        zip_name = self.zip_folder_name + ".tar.xz"
+        tools.download("https://dist.libuv.org/dist/v%(version)s/libuv-v%(version)s.tar.gz" % {'version': self.version},
+                       zip_name)
+        tools.check_md5(zip_name, "e3202bd420e0740d6809df042cccd9f9")
+        tools.unzip(zip_name)
+        os.unlink(zip_name)
 
-    def build_requirements(self):
-        self.build_requires("gyp_installer/20190423@zinnion/stable")
-        if not tools.which("ninja"):
-            self.build_requires("ninja_installer/1.9.0@zinnion/stable")
+        with tools.chdir(self.zip_folder_name):
+            tools.replace_in_file("CMakeLists.txt", "project(libuv)",
+                                  '''project(libuv C)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()''')
+            tools.replace_in_file("CMakeLists.txt", "if(UNIX)", "if(FALSE)")
 
     def build(self):
-        with tools.chdir(self._source_subfolder):
-            env_vars = dict()
-            if self.settings.compiler == "Visual Studio":
-                env_vars["GYP_MSVS_VERSION"] = {"14": "2015",
-                                                "15": "2017"}.get(str(self.settings.compiler.version))
-            with tools.environment_append(env_vars):
-                target_arch = {"x86": "ia32", "x86_64": "x64"}.get(str(self.settings.arch))
-                uv_library = "shared_library" if self.options.shared else "static_library"
-                self.run("python gyp_uv.py -f ninja -Dtarget_arch=%s -Duv_library=%s"
-                         % (target_arch, uv_library))
-                self.run("ninja -C out/%s" % self.settings.build_type)
+        with tools.chdir(self.zip_folder_name):
+            tools.replace_in_file("CMakeLists.txt", "add_library(uv_a STATIC ${uv_sources})", "add_library(uv_a STATIC EXCLUDE_FROM_ALL ${uv_sources})")
+            tools.replace_in_file("CMakeLists.txt", "add_library(uv SHARED ${uv_sources})", "add_library(uv ${uv_sources})")
+            if not self.options.shared:
+                tools.replace_in_file("CMakeLists.txt", "target_compile_definitions(uv PRIVATE ${uv_defines} BUILDING_UV_SHARED=1)", "target_compile_definitions(uv PRIVATE ${uv_defines})")
+        cmake = CMake(self)
+        cmake.configure(source_folder=self.zip_folder_name)
+        cmake.build()
 
     def package(self):
-        self.copy(pattern="LICENSE*", dst="licenses", src=self._source_subfolder)
-        self.copy(pattern="*.h", dst="include", src=os.path.join(self._source_subfolder, "include"))
-        bin_dir = os.path.join(self._source_subfolder, "out", str(self.settings.build_type))
-        if self.settings.os == "Windows":
-            if self.options.shared:
-                self.copy(pattern="*.dll", dst="bin", src=bin_dir, keep_path=False)
-            self.copy(pattern="*.lib", dst="lib", src=bin_dir, keep_path=False)
-        elif str(self.settings.os) in ["Linux", "Android"]:
-            if self.options.shared:
-                self.copy(pattern="libuv.so.1", dst="lib", src=os.path.join(bin_dir, "lib"),
-                          keep_path=False)
-                lib_dir = os.path.join(self.package_folder, "lib")
-                os.symlink("libuv.so.1", os.path.join(lib_dir, "libuv.so"))
-            else:
-                self.copy(pattern="*.a", dst="lib", src=bin_dir, keep_path=False)
-        elif str(self.settings.os) in ["Macos", "iOS", "watchOS", "tvOS"]:
-            if self.options.shared:
-                self.copy(pattern="*.dylib", dst="lib", src=bin_dir, keep_path=False)
-            else:
-                self.copy(pattern="*.a", dst="lib", src=bin_dir, keep_path=False)
+        self.copy("*.h", dst="include", src="%s/include" % self.zip_folder_name)
+        self.copy("uv.lib", dst="lib", src="lib")
+        self.copy("*.dll", dst="bin", src="bin")
+        self.copy("*.so", dst="lib", src="lib")
+        self.copy("*.dylib", dst="lib", src="lib")
+        self.copy("*.a", dst="lib", src="lib")
+        self.copy("libuv-config.cmake", dst="cmake")
 
     def package_info(self):
         if self.settings.os == "Windows":
